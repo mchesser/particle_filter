@@ -176,3 +176,29 @@ impl<PARTICLE, MEASUREMENT, F1, F2, F3> ParticleFilter<PARTICLE, MEASUREMENT, F1
         }
     }
 }
+
+/// A utility trait for managing the filter as a trait object
+pub trait ParallelFilter<S, M> {
+    /// Get a view of the current particles
+    fn get_particles(&self) -> &[S];
+
+    /// Perform a single step of the particle filter
+    fn step(&mut self, measurement: M, dt: f32);
+}
+
+impl<F1, F2, F3, S, M> ParallelFilter<S, M> for ParticleFilter<S, M, F1, F2, F3>
+    where
+        S: Copy + Clone + Send + Sync,
+        M: Copy + Clone + Send + Sync,
+        F1: Fn(S, f32) -> S + Send + Sync,
+        F2: Fn(S, f32) -> S + Send + Sync,
+        F3: Fn(S, M) -> f32 + Send + Sync
+{
+    fn get_particles(&self) -> &[S] {
+        self.get_particles()
+    }
+
+    fn step(&mut self, measurement: M, dt: f32) {
+        self.parallel_step(measurement, dt);
+    }
+}
