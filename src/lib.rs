@@ -143,9 +143,9 @@ impl<F1, F2, F3, S, M> Filter<S, M> for ParticleFilter<S, M, F1, F2, F3>
     where
         S: Copy + Clone,
         M: Copy + Clone,
-        F1: Fn(S, f32) -> S,
-        F2: Fn(S, f32) -> S,
-        F3: Fn(S, M) -> f32
+        F1: FnMut(S, f32) -> S,
+        F2: FnMut(S, f32) -> S,
+        F3: FnMut(S, M) -> f32
 {
     fn get_particles(&self) -> &[S] {
         self.get_particles()
