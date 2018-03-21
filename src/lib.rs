@@ -194,7 +194,7 @@ impl<PARTICLE, MEASUREMENT, F1, F2, F3> ParticleFilter<PARTICLE, MEASUREMENT, F1
         let mut weights = &mut self.weights;
         current_particles.par_iter()
             .map(|p| (weight_function)(*p, measurement))
-            .collect_into(&mut weights);
+            .collect_into_vec(&mut weights);
 
         // Normalise weights
         let weight_sum = weights.iter().fold(0.0, |acc, x| acc + x);
