@@ -19,22 +19,26 @@ impl<P> ParticleBuffer<P> {
 }
 
 /// A basic particle implementation generic over the particle and measurement type
-pub struct ParticleFilter<PARTICLE, MEASUREMENT, F1, F2, F3> {
+pub struct ParticleFilter<PARTICLE, MEASUREMENT: ?Sized, F1, F2, F3>
+where
+    F3: for<'a> FnMut(PARTICLE, &'a MEASUREMENT) -> f32,
+{
     particles: ParticleBuffer<PARTICLE>,
     weights: Vec<f32>,
     propagation_function: F1,
     noise_function: F2,
     weight_function: F3,
 
-    _measurement: std::marker::PhantomData<MEASUREMENT>,
+    _measurement: std::marker::PhantomData<*const MEASUREMENT>,
 }
 
 impl<PARTICLE, MEASUREMENT, F1, F2, F3> ParticleFilter<PARTICLE, MEASUREMENT, F1, F2, F3>
-    where PARTICLE: Copy + Clone,
-          MEASUREMENT: Copy + Clone,
-          F1: FnMut(PARTICLE, f32) -> PARTICLE,
-          F2: FnMut(PARTICLE, f32) -> PARTICLE,
-          F3: FnMut(PARTICLE, MEASUREMENT) -> f32,
+where
+    PARTICLE: Copy + Clone,
+    MEASUREMENT: ?Sized,
+    F1: FnMut(PARTICLE, f32) -> PARTICLE,
+    F2: FnMut(PARTICLE, f32) -> PARTICLE,
+    F3: for<'a> FnMut(PARTICLE, &'a MEASUREMENT) -> f32,
 {
     /// Create a new particle filter given and initial particle distribution.
     ///
@@ -60,7 +64,7 @@ impl<PARTICLE, MEASUREMENT, F1, F2, F3> ParticleFilter<PARTICLE, MEASUREMENT, F1
     }
 
     /// Perform a step in the particle filter
-    pub fn step(&mut self, measurement: MEASUREMENT, dt: f32) {
+    pub fn step(&mut self, measurement: &MEASUREMENT, dt: f32) {
         self.weights.clear();
         let mut sum_weights = 0.0;
 
@@ -69,7 +73,7 @@ impl<PARTICLE, MEASUREMENT, F1, F2, F3> ParticleFilter<PARTICLE, MEASUREMENT, F1
             *particle = (self.propagation_function)(*particle, dt);
 
             // Compute the particle's new weight
-            let weight = (self.weight_function)(*particle, measurement);
+            let weight = (self.weight_function)(*particle, &measurement);
             sum_weights += weight;
             self.weights.push(weight);
         }
@@ -131,41 +135,47 @@ impl<PARTICLE, MEASUREMENT, F1, F2, F3> ParticleFilter<PARTICLE, MEASUREMENT, F1
 }
 
 /// A utility trait for managing the filter as a trait object
-pub trait Filter<S, M> {
+pub trait Filter {
+    type Particle;
+    type Measurement: ?Sized;
+
     /// Get a view of the current particles
-    fn get_particles(&self) -> &[S];
+    fn get_particles(&self) -> &[Self::Particle];
 
     /// Perform a single step of the particle filter
-    fn step(&mut self, measurement: M, dt: f32);
+    fn step(&mut self, measurement: &Self::Measurement, dt: f32);
 }
 
-impl<F1, F2, F3, S, M> Filter<S, M> for ParticleFilter<S, M, F1, F2, F3>
-    where
-        S: Copy + Clone,
-        M: Copy + Clone,
-        F1: FnMut(S, f32) -> S,
-        F2: FnMut(S, f32) -> S,
-        F3: FnMut(S, M) -> f32
+impl<F1, F2, F3, S, M> Filter for ParticleFilter<S, M, F1, F2, F3>
+where
+    S: Copy + Clone,
+    M: ?Sized,
+    F1: FnMut(S, f32) -> S,
+    F2: FnMut(S, f32) -> S,
+    F3: for<'a> FnMut(S, &'a M) -> f32
 {
+    type Particle = S;
+    type Measurement = M;
+
     fn get_particles(&self) -> &[S] {
         self.get_particles()
     }
 
-    fn step(&mut self, measurement: M, dt: f32) {
+    fn step(&mut self, measurement: &M, dt: f32) {
         self.step(measurement, dt);
     }
 }
 
-
 impl<PARTICLE, MEASUREMENT, F1, F2, F3> ParticleFilter<PARTICLE, MEASUREMENT, F1, F2, F3>
-    where PARTICLE: Copy + Clone + Send + Sync,
-          MEASUREMENT: Copy + Clone + Send + Sync,
-          F1: Fn(PARTICLE, f32) -> PARTICLE + Send + Sync,
-          F2: Fn(PARTICLE, f32) -> PARTICLE + Send + Sync,
-          F3: Fn(PARTICLE, MEASUREMENT) -> f32 + Send + Sync,
+where
+    PARTICLE: Copy + Clone + Send + Sync,
+    MEASUREMENT: ?Sized + Sync,
+    F1: Fn(PARTICLE, f32) -> PARTICLE + Send + Sync,
+    F2: Fn(PARTICLE, f32) -> PARTICLE + Send + Sync,
+    F3: for<'a> Fn(PARTICLE, &'a MEASUREMENT) -> f32 + Send + Sync,
 {
     /// Perform a step in the particle filter running calculations in parallel.
-    pub fn parallel_step(&mut self, measurement: MEASUREMENT, dt: f32) {
+    pub fn parallel_step(&mut self, measurement: &MEASUREMENT, dt: f32) {
         self.parallel_step_inner(measurement, dt);
 
         let num_particles = self.get_particles().len();
@@ -180,7 +190,7 @@ impl<PARTICLE, MEASUREMENT, F1, F2, F3> ParticleFilter<PARTICLE, MEASUREMENT, F1
     }
 
     /// Inner function for parallel step.
-    fn parallel_step_inner(&mut self, measurement: MEASUREMENT, dt: f32) {
+    fn parallel_step_inner(&mut self, measurement: &MEASUREMENT, dt: f32) {
         let propagation_function = &mut self.propagation_function;
 
         // Update particles
@@ -205,27 +215,33 @@ impl<PARTICLE, MEASUREMENT, F1, F2, F3> ParticleFilter<PARTICLE, MEASUREMENT, F1
 }
 
 /// A utility trait for managing the filter as a trait object
-pub trait ParallelFilter<S, M> {
+pub trait ParallelFilter {
+    type Particle;
+    type Measurement: ?Sized;
+
     /// Get a view of the current particles
-    fn get_particles(&self) -> &[S];
+    fn get_particles(&self) -> &[Self::Particle];
 
     /// Perform a single step of the particle filter
-    fn step(&mut self, measurement: M, dt: f32);
+    fn step(&mut self, measurement: &Self::Measurement, dt: f32);
 }
 
-impl<F1, F2, F3, S, M> ParallelFilter<S, M> for ParticleFilter<S, M, F1, F2, F3>
-    where
-        S: Copy + Clone + Send + Sync,
-        M: Copy + Clone + Send + Sync,
-        F1: Fn(S, f32) -> S + Send + Sync,
-        F2: Fn(S, f32) -> S + Send + Sync,
-        F3: Fn(S, M) -> f32 + Send + Sync
+impl<F1, F2, F3, S, M> ParallelFilter for ParticleFilter<S, M, F1, F2, F3>
+where
+    S: Copy + Clone + Send + Sync,
+    M: ?Sized + Sync,
+    F1: Fn(S, f32) -> S + Send + Sync,
+    F2: Fn(S, f32) -> S + Send + Sync,
+    F3: for<'a> Fn(S, &'a M) -> f32 + Send + Sync
 {
+    type Particle = S;
+    type Measurement = M;
+
     fn get_particles(&self) -> &[S] {
         self.get_particles()
     }
 
-    fn step(&mut self, measurement: M, dt: f32) {
+    fn step(&mut self, measurement: &M, dt: f32) {
         self.parallel_step(measurement, dt);
     }
 }
