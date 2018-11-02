@@ -124,15 +124,16 @@ where
     }
 
     /// Merges the particles from one particle filter with the current particle filter
-    pub fn merge_particles(&mut self, other: &[PARTICLE]) {
+    pub fn merge_particles(&mut self, other: &[PARTICLE], ratio: f32) {
+        assert!(ratio >= 0.0 && ratio <= 1.0);
+
         let num_particles = self.particles.current_particles.len();
-        self.particles.current_particles.extend_from_slice(other);
 
-        self.weights.clear();
-        let weight_factor = 1.0 / self.particles.current_particles.len() as f32;
-        self.weights.resize(self.particles.current_particles.len(), weight_factor);
+        let new_particles = ((ratio * num_particles as f32) as usize).min(other.len());
+        let base_particles = num_particles - new_particles;
 
-        self.resample(num_particles);
+        self.particles.current_particles.truncate(base_particles);
+        self.particles.current_particles.extend_from_slice(&other[..new_particles]);
     }
 }
 
