@@ -64,7 +64,7 @@ where
     }
 
     /// Perform a step in the particle filter
-    pub fn step(&mut self, measurement: &MEASUREMENT, dt: f32) {
+    pub fn step(&mut self, measurement: &MEASUREMENT, dt: f32) -> f32 {
         self.weights.clear();
         let mut sum_weights = 0.0;
 
@@ -89,6 +89,8 @@ where
         for particle in &mut self.particles.current_particles {
             *particle = (self.noise_function)(*particle, dt);
         }
+
+        sum_weights / self.weights.len() as f32
     }
 
     /// Return a slice to the current list of particles.
@@ -143,7 +145,7 @@ pub trait Filter {
     fn get_particles(&self) -> &[Self::Particle];
 
     /// Perform a single step of the particle filter
-    fn step(&mut self, measurement: &Self::Measurement, dt: f32);
+    fn step(&mut self, measurement: &Self::Measurement, dt: f32) -> f32;
 }
 
 impl<F1, F2, F3, S, M> Filter for ParticleFilter<S, M, F1, F2, F3>
@@ -161,8 +163,8 @@ where
         self.get_particles()
     }
 
-    fn step(&mut self, measurement: &M, dt: f32) {
-        self.step(measurement, dt);
+    fn step(&mut self, measurement: &M, dt: f32) -> f32 {
+        self.step(measurement, dt)
     }
 }
 
@@ -175,8 +177,8 @@ where
     F3: for<'a> Fn(PARTICLE, &'a MEASUREMENT) -> f32 + Send + Sync,
 {
     /// Perform a step in the particle filter running calculations in parallel.
-    pub fn parallel_step(&mut self, measurement: &MEASUREMENT, dt: f32) {
-        self.parallel_step_inner(measurement, dt);
+    pub fn parallel_step(&mut self, measurement: &MEASUREMENT, dt: f32) -> f32 {
+        let weight = self.parallel_step_inner(measurement, dt);
 
         let num_particles = self.get_particles().len();
         self.resample(num_particles);
@@ -187,10 +189,12 @@ where
         current_particles.par_iter_mut().for_each(|p| {
             *p = (noise_function)(*p, dt);
         });
+
+        weight
     }
 
     /// Inner function for parallel step.
-    fn parallel_step_inner(&mut self, measurement: &MEASUREMENT, dt: f32) {
+    fn parallel_step_inner(&mut self, measurement: &MEASUREMENT, dt: f32) -> f32 {
         let propagation_function = &mut self.propagation_function;
 
         // Update particles
@@ -207,10 +211,13 @@ where
             .collect_into_vec(&mut weights);
 
         // Normalise weights
+        let num_weights = weights.len();
         let weight_sum = weights.iter().fold(0.0, |acc, x| acc + x);
         for weight in weights {
             *weight /= weight_sum
         }
+
+        weight_sum / num_weights as f32
     }
 }
 
@@ -223,7 +230,7 @@ pub trait ParallelFilter {
     fn get_particles(&self) -> &[Self::Particle];
 
     /// Perform a single step of the particle filter
-    fn step(&mut self, measurement: &Self::Measurement, dt: f32);
+    fn step(&mut self, measurement: &Self::Measurement, dt: f32) -> f32;
 }
 
 impl<F1, F2, F3, S, M> ParallelFilter for ParticleFilter<S, M, F1, F2, F3>
@@ -241,7 +248,7 @@ where
         self.get_particles()
     }
 
-    fn step(&mut self, measurement: &M, dt: f32) {
-        self.parallel_step(measurement, dt);
+    fn step(&mut self, measurement: &M, dt: f32) -> f32 {
+        self.parallel_step(measurement, dt)
     }
 }
