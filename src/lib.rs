@@ -221,6 +221,9 @@ pub trait ParallelFilter {
 
     /// Perform a single step of the particle filter
     fn step(&mut self, measurement: &Self::Measurement, dt: f32) -> f32;
+
+    /// Merges one set of particles with another (used for reinitialization)
+    fn merge_particles(&mut self, other: &[Self::Particle], ratio: f32);
 }
 
 impl<F1, F2, S, M> ParallelFilter for ParticleFilter<S, M, F1, F2>
@@ -239,5 +242,9 @@ where
 
     fn step(&mut self, measurement: &M, dt: f32) -> f32 {
         ParticleFilter::parallel_step(self, measurement, dt)
+    }
+
+    fn merge_particles(&mut self, other: &[S], ratio: f32) {
+        ParticleFilter::merge_particles(self, other, ratio);
     }
 }
