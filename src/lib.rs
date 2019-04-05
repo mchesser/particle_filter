@@ -2,6 +2,7 @@ extern crate rand;
 extern crate rayon;
 
 use std::mem;
+
 use rand::Rng;
 use rayon::prelude::*;
 
@@ -44,20 +45,23 @@ where
     ///
     /// The initial particle distribution is used to determine the number of particles to be used
     /// throughout the particle filter's lifetime.
-    pub fn new(initial_particles: Vec<PARTICLE>, propagation_function: F1, noise_function: F2,
-        weight_function: F3) -> ParticleFilter<PARTICLE, MEASUREMENT, F1, F2, F3>
-    {
+    pub fn new(
+        initial_particles: Vec<PARTICLE>,
+        propagation_function: F1,
+        noise_function: F2,
+        weight_function: F3,
+    ) -> ParticleFilter<PARTICLE, MEASUREMENT, F1, F2, F3> {
         let num_particles = initial_particles.len();
 
         ParticleFilter {
             particles: ParticleBuffer {
                 current_particles: initial_particles,
-                previous_particles: Vec::with_capacity(num_particles)
+                previous_particles: Vec::with_capacity(num_particles),
             },
             weights: Vec::with_capacity(num_particles),
-            propagation_function: propagation_function,
-            noise_function: noise_function,
-            weight_function: weight_function,
+            propagation_function,
+            noise_function,
+            weight_function,
 
             _measurement: std::marker::PhantomData,
         }
@@ -158,7 +162,7 @@ where
     M: ?Sized,
     F1: FnMut(S, f32) -> S,
     F2: FnMut(S, f32) -> S,
-    F3: for<'a> FnMut(S, &'a M) -> f32
+    F3: for<'a> FnMut(S, &'a M) -> f32,
 {
     type Particle = S;
     type Measurement = M;
@@ -214,7 +218,8 @@ where
         // Calculate new weights
         let weight_function = &mut self.weight_function;
         let mut weights = &mut self.weights;
-        current_particles.par_iter()
+        current_particles
+            .par_iter()
             .map(|p| (weight_function)(*p, measurement))
             .collect_into_vec(&mut weights);
 
@@ -247,7 +252,7 @@ where
     M: ?Sized + Sync,
     F1: Fn(S, f32) -> S + Send + Sync,
     F2: Fn(S, f32) -> S + Send + Sync,
-    F3: for<'a> Fn(S, &'a M) -> f32 + Send + Sync
+    F3: for<'a> Fn(S, &'a M) -> f32 + Send + Sync,
 {
     type Particle = S;
     type Measurement = M;
