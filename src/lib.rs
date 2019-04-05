@@ -174,30 +174,18 @@ where
 {
     /// Perform a step in the particle filter running calculations in parallel.
     pub fn parallel_step(&mut self, measurement: &MEASUREMENT, dt: f32) -> f32 {
-        let weight = self.parallel_step_inner(measurement, dt);
-
-        let num_particles = self.get_particles().len();
-        self.resample(num_particles);
-
-        weight
-    }
-
-    /// Inner function for parallel step.
-    fn parallel_step_inner(&mut self, measurement: &MEASUREMENT, dt: f32) -> f32 {
         let motion_model = &mut self.motion_model;
-
-        // Update particles
-        let current_particles = &mut self.particles.current_particles;
-        current_particles.par_iter_mut().for_each_with(self.rng.clone(), |rng, p| {
-            *p = (motion_model)(rng, *p, dt);
-        });
-
-        // Calculate new weights
         let measurement_model = &mut self.measurement_model;
+        let current_particles = &mut self.particles.current_particles;
+
+        // Update particles and calculate new weights
         let mut weights = &mut self.weights;
         current_particles
-            .par_iter()
-            .map(|p| (measurement_model)(*p, measurement))
+            .par_iter_mut()
+            .map_with(self.rng.clone(), |rng, p| {
+                *p = (motion_model)(rng, *p, dt);
+                (measurement_model)(*p, measurement)
+            })
             .collect_into_vec(&mut weights);
 
         // Normalise weights
@@ -206,6 +194,9 @@ where
         for weight in weights {
             *weight /= weight_sum
         }
+
+        let num_particles = self.get_particles().len();
+        self.resample(num_particles);
 
         weight_sum / num_weights as f32
     }
