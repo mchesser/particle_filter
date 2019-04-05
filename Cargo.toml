@@ -1,8 +1,9 @@
 [package]
 authors = ["Michael Chesser"]
 name = "particle_filter"
-version = "0.5.2"
+version = "0.6.0"
+edition = "2018"
 
 [dependencies]
-rand = "0.6.4"
+rand = "0.6.5"
 rayon = "1.0.3"
