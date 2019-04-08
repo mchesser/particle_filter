@@ -24,7 +24,7 @@ pub struct ParticleFilter<PARTICLE, MEASUREMENT: ?Sized, F1, F2> {
     measurement_model: F2,
     rng: SmallRng,
 
-    _measurement: std::marker::PhantomData<*const MEASUREMENT>,
+    _measurement: std::marker::PhantomData<MEASUREMENT>,
 }
 
 impl<PARTICLE, MEASUREMENT, F1, F2> ParticleFilter<PARTICLE, MEASUREMENT, F1, F2>
