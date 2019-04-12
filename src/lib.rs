@@ -17,22 +17,25 @@ impl<P> ParticleBuffer<P> {
 }
 
 /// A basic particle implementation generic over the particle and measurement type
-pub struct ParticleFilter<PARTICLE, MEASUREMENT: ?Sized, F1, F2> {
+pub struct ParticleFilter<PARTICLE, MEASUREMENT: ?Sized, T, F1, F2, INIT> {
     particles: ParticleBuffer<PARTICLE>,
     weights: Vec<f32>,
     motion_model: F1,
     measurement_model: F2,
+    init_fn: INIT,
     rng: SmallRng,
 
     _measurement: std::marker::PhantomData<MEASUREMENT>,
+    _state: std::marker::PhantomData<T>,
 }
 
-impl<PARTICLE, MEASUREMENT, F1, F2> ParticleFilter<PARTICLE, MEASUREMENT, F1, F2>
+impl<PARTICLE, MEASUREMENT, T, F1, F2, INIT> ParticleFilter<PARTICLE, MEASUREMENT, T, F1, F2, INIT>
 where
     PARTICLE: Copy + Clone,
     MEASUREMENT: ?Sized,
-    F1: for<'a> FnMut(&'a mut SmallRng, PARTICLE, f32) -> PARTICLE,
+    F1: for<'a> FnMut(&'a mut T, PARTICLE, f32) -> PARTICLE,
     F2: for<'a> FnMut(PARTICLE, &'a MEASUREMENT) -> f32,
+    INIT: FnMut() -> T,
 {
     /// Create a new particle filter given and initial particle distribution.
     ///
@@ -42,7 +45,8 @@ where
         initial: Vec<PARTICLE>,
         motion_model: F1,
         measurement_model: F2,
-    ) -> ParticleFilter<PARTICLE, MEASUREMENT, F1, F2> {
+        init_fn: INIT,
+    ) -> ParticleFilter<PARTICLE, MEASUREMENT, T, F1, F2, INIT> {
         let num_particles = initial.len();
 
         ParticleFilter {
@@ -53,9 +57,11 @@ where
             weights: Vec::with_capacity(num_particles),
             motion_model,
             measurement_model,
+            init_fn,
             rng: SmallRng::from_entropy(),
 
             _measurement: std::marker::PhantomData,
+            _state: std::marker::PhantomData,
         }
     }
 
@@ -64,9 +70,10 @@ where
         self.weights.clear();
         let mut sum_weights = 0.0;
 
+        let mut state = (self.init_fn)();
         for particle in &mut self.particles.current_particles {
             // Update the particle
-            *particle = (self.motion_model)(&mut self.rng, *particle, dt);
+            *particle = (self.motion_model)(&mut state, *particle, dt);
 
             // Compute the particle's new weight
             let weight = (self.measurement_model)(*particle, &measurement);
@@ -142,12 +149,13 @@ pub trait Filter {
     fn merge_particles(&mut self, other: &[Self::Particle], ratio: f32);
 }
 
-impl<F1, F2, S, M> Filter for ParticleFilter<S, M, F1, F2>
+impl<S, M, T, F1, F2, INIT> Filter for ParticleFilter<S, M, T, F1, F2, INIT>
 where
     S: Copy + Clone,
     M: ?Sized,
-    F1: for<'a> FnMut(&'a mut SmallRng, S, f32) -> S,
+    F1: for<'a> FnMut(&'a mut T, S, f32) -> S,
     F2: for<'a> FnMut(S, &'a M) -> f32,
+    INIT: Fn() -> T + Send + Sync,
 {
     type Particle = S;
     type Measurement = M;
@@ -165,16 +173,19 @@ where
     }
 }
 
-impl<PARTICLE, MEASUREMENT, F1, F2> ParticleFilter<PARTICLE, MEASUREMENT, F1, F2>
+impl<PARTICLE, MEASUREMENT, T, F1, F2, INIT> ParticleFilter<PARTICLE, MEASUREMENT, T, F1, F2, INIT>
 where
     PARTICLE: Copy + Clone + Send + Sync,
     MEASUREMENT: ?Sized + Sync,
-    F1: for<'a> Fn(&'a mut SmallRng, PARTICLE, f32) -> PARTICLE + Send + Sync,
+    T: Sync,
+    F1: for<'a> Fn(&'a mut T, PARTICLE, f32) -> PARTICLE + Send + Sync,
     F2: for<'a> Fn(PARTICLE, &'a MEASUREMENT) -> f32 + Send + Sync,
+    INIT: Fn() -> T + Send + Sync,
 {
     /// Perform a step in the particle filter running calculations in parallel.
     pub fn parallel_step(&mut self, measurement: &MEASUREMENT, dt: f32) -> f32 {
         let motion_model = &mut self.motion_model;
+        let init_fn = &mut self.init_fn;
         let measurement_model = &mut self.measurement_model;
         let current_particles = &mut self.particles.current_particles;
 
@@ -182,8 +193,8 @@ where
         let mut weights = &mut self.weights;
         current_particles
             .par_iter_mut()
-            .map_with(self.rng.clone(), |rng, p| {
-                *p = (motion_model)(rng, *p, dt);
+            .map_init(|| (init_fn)(), |state, p| {
+                *p = (motion_model)(state, *p, dt);
                 (measurement_model)(*p, measurement)
             })
             .collect_into_vec(&mut weights);
@@ -217,12 +228,14 @@ pub trait ParallelFilter {
     fn merge_particles(&mut self, other: &[Self::Particle], ratio: f32);
 }
 
-impl<F1, F2, S, M> ParallelFilter for ParticleFilter<S, M, F1, F2>
+impl<S, M, T, F1, F2, INIT> ParallelFilter for ParticleFilter<S, M, T, F1, F2, INIT>
 where
     S: Copy + Clone + Send + Sync,
     M: ?Sized + Sync,
-    F1: for<'a> Fn(&'a mut SmallRng, S, f32) -> S + Send + Sync,
+    T: Sync,
+    F1: for<'a> Fn(&'a mut T, S, f32) -> S + Send + Sync,
     F2: for<'a> Fn(S, &'a M) -> f32 + Send + Sync,
+    INIT: Fn() -> T + Send + Sync,
 {
     type Particle = S;
     type Measurement = M;
