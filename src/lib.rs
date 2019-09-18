@@ -1,6 +1,6 @@
 use std::mem;
 
-use rand::{rngs::SmallRng, FromEntropy, Rng};
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 use rayon::prelude::*;
 
 /// A structure for efficiently reusing particle buffers
